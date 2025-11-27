@@ -4,6 +4,7 @@ import com.capstone.userservice.dtos.*;
 import com.capstone.userservice.models.Token;
 import com.capstone.userservice.models.User;
 import com.capstone.userservice.services.UserService;
+import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
@@ -41,9 +42,13 @@ public class UserController
         return null;
     }
 
-    @GetMapping("/validate/{token}")
-    public ResponseEntity<Boolean> validateToken(@PathVariable("token") String token)
+    @PostMapping("/validate")
+    public ResponseEntity<Boolean> validateToken(@RequestHeader(HttpHeaders.AUTHORIZATION) String token)
     {
+        if(token.startsWith("Bearer "))
+        {
+            token = token.replace("Bearer ", "");
+        }
         User user = userService.validateToken(token);
         ResponseEntity<Boolean> responseEntity;
 

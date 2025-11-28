@@ -1,15 +1,16 @@
 package com.capstone.userservice.services;
 
+import com.fasterxml.jackson.core.JsonProcessingException;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.capstone.userservice.dtos.SendEmailDto;
 import com.capstone.userservice.models.Token;
 import com.capstone.userservice.models.User;
 import com.capstone.userservice.repositories.TokenRepository;
 import com.capstone.userservice.repositories.UserRepository;
-import org.apache.commons.lang3.RandomStringUtils;
-import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
-import org.springframework.stereotype.Service;
 import io.jsonwebtoken.Claims;
 import io.jsonwebtoken.Jwts;
 import io.jsonwebtoken.SignatureAlgorithm;
+import org.springframework.kafka.core.KafkaTemplate;
 import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
 import org.springframework.stereotype.Service;
 
@@ -19,37 +20,59 @@ import java.util.*;
 @Service
 public class UserServiceImpl implements UserService
 {
-    //    private static final SecretKey SECRET_KEY = Keys.secretKeyFor(SignatureAlgorithm.HS256);
+//    private static final SecretKey SECRET_KEY = Keys.secretKeyFor(SignatureAlgorithm.HS256);
     private static final long EXPIRATION_TIME_IN_MS = 10 * 60 * 60 * 1000; // 10 hours
 
     private final UserRepository userRepository;
     private final TokenRepository tokenRepository;
+    private final ObjectMapper objectMapper;
+    private final KafkaTemplate<String, Object> kafkaTemplate;
     BCryptPasswordEncoder bCryptPasswordEncoder;
     SecretKey secretKey;
 
     public UserServiceImpl(UserRepository userRepository,
                            TokenRepository tokenRepository,
                            BCryptPasswordEncoder bCryptPasswordEncoder,
-                           SecretKey secretKey) {
+                           SecretKey secretKey, ObjectMapper objectMapper,
+                           KafkaTemplate<String, Object> kafkaTemplate) {
         this.userRepository = userRepository;
         this.tokenRepository = tokenRepository;
         this.bCryptPasswordEncoder = bCryptPasswordEncoder;
         this.secretKey = secretKey;
+        this.objectMapper = objectMapper;
+        this.kafkaTemplate = kafkaTemplate;
     }
 
     @Override
     public User signup(String name, String email, String password)
     {
-        if(userRepository.findByEmail(email).isPresent())
-        {
-            //throw an exception
-            return null;
-        }
+//        if(userRepository.findByEmail(email).isPresent())
+//        {
+//            //throw an exception
+//            return null;
+//        }
 
         User user = new User();
         user.setName(name);
         user.setEmail(email);
         user.setPassword(bCryptPasswordEncoder.encode(password));
+
+        SendEmailDto sendEmailDto = new SendEmailDto();
+        sendEmailDto.setFrom("ghosh.abhishek18459@gmail.com");
+        sendEmailDto.setSubject("User Registration Test");
+        sendEmailDto.setBody("Hello, " + name + "!");
+        sendEmailDto.setTo(email);
+
+        String sendEmailDtoString;
+
+        try {
+            sendEmailDtoString = objectMapper.writeValueAsString(sendEmailDto);
+        } catch (JsonProcessingException e) {
+            throw new RuntimeException(e);
+        }
+
+        kafkaTemplate.send("sendEmail", sendEmailDtoString);
+
         return userRepository.save(user);
     }
 
@@ -115,10 +138,10 @@ public class UserServiceImpl implements UserService
         try
         {
             claims = Jwts.parserBuilder()
-                    .setSigningKey(secretKey)
-                    .build()
-                    .parseClaimsJws(tokenValue)
-                    .getBody();
+                .setSigningKey(secretKey)
+                .build()
+                .parseClaimsJws(tokenValue)
+                .getBody();
         }catch (io.jsonwebtoken.ExpiredJwtException e)
         {
             System.out.println("Token validation failed. Expired JWT token: " + e.getMessage());
@@ -149,14 +172,14 @@ public class UserServiceImpl implements UserService
     private User validateNonJwtTokenInDB(String tokenValue)
     {
         /*
-         * 1. Exists in DB
-         * 2. Not deleted
-         * 3. Not expired
-         * */
+        * 1. Exists in DB
+        * 2. Not deleted
+        * 3. Not expired
+        * */
 
         Optional<Token> tokenOptional
                 = tokenRepository.findByTokenValueAndDeletedAndExpiryAtGreaterThan(
-                tokenValue, false, new Date());
+                        tokenValue, false, new Date());
 
         if(tokenOptional.isEmpty())
         {
